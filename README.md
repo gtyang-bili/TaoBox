@@ -15,18 +15,37 @@ TaoBox 是一个面向 VPS 的一体化命令行工具箱，入口脚本会安�
 
 > 当前 CTF/受控网络环境访问 GitHub 时需要携带 `jshook` 请求头。下面命令默认使用 `JSHOOK` 环境变量；未设置时使用脚本默认值 `123`。
 
+启动策略：先使用 `curl`，没有 `curl` 时改用 `wget`；如果两者都没有，且当前是使用 `apt-get` 的 root 环境，则先安装 `curl` 再下载。此时安装脚本尚未下载，不能依靠脚本自身补装下载工具。其他环境请先安装 `curl` / `wget`，或手动传入脚本文件后运行。
+
 ### 一键运行脚本
 
 最简单的启动方式：
 
 ```bash
-curl -fsSL -H "jshook: 123" https://raw.githubusercontent.com/tao-t356/TaoBox/main/bootstrap-vps.sh | bash
+(
+  set -euo pipefail
+  jshook="${JSHOOK:-123}"
+  url="https://raw.githubusercontent.com/tao-t356/TaoBox/main/bootstrap-vps.sh"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -H "jshook: ${jshook}" "${url}" | bash
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- --header="jshook: ${jshook}" "${url}" | bash
+  elif command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
+    apt-get update
+    apt-get install -y curl
+    curl -fsSL -H "jshook: ${jshook}" "${url}" | bash
+  else
+    echo "未找到 curl 或 wget；请先安装其中一个，或手动传入 bootstrap-vps.sh。" >&2
+    exit 1
+  fi
+)
 ```
 
-如果你的环境使用其他 `jshook` 值：
+如果你的环境使用其他 `jshook` 值，先设置环境变量，再运行上面的命令：
 
 ```bash
-curl -fsSL -H "jshook: <YOUR_JSHOOK>" https://raw.githubusercontent.com/tao-t356/TaoBox/main/bootstrap-vps.sh | bash
+export JSHOOK="<YOUR_JSHOOK>"
 ```
 
 ### 防缓存安装方式
@@ -34,21 +53,40 @@ curl -fsSL -H "jshook: <YOUR_JSHOOK>" https://raw.githubusercontent.com/tao-t356
 推荐使用 GitHub API + 时间戳安装，避免 `raw.githubusercontent.com` 缓存导致拉到旧版本：
 
 ```bash
-tmp=$(mktemp)
-curl -fsSL \
-  -H "Accept: application/vnd.github.raw" \
-  -H "Cache-Control: no-cache" \
-  -H "jshook: ${JSHOOK:-123}" \
-  "https://api.github.com/repos/tao-t356/TaoBox/contents/bootstrap-vps.sh?ref=main&ts=$(date +%s)" \
-  -o "$tmp"
-bash "$tmp"
-```
+(
+  set -euo pipefail
+  jshook="${JSHOOK:-123}"
+  url="https://api.github.com/repos/tao-t356/TaoBox/contents/bootstrap-vps.sh?ref=main&ts=$(date +%s)"
+  tmp="$(mktemp)"
+  trap 'rm -f "${tmp}"' EXIT
 
-如果你明确知道当前网络不受 raw 缓存影响，也可以使用：
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL \
+      -H "Accept: application/vnd.github.raw" \
+      -H "Cache-Control: no-cache" \
+      -H "jshook: ${jshook}" \
+      "${url}" -o "${tmp}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "${tmp}" \
+      --header="Accept: application/vnd.github.raw" \
+      --header="Cache-Control: no-cache" \
+      --header="jshook: ${jshook}" \
+      "${url}"
+  elif command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
+    apt-get update
+    apt-get install -y curl
+    curl -fsSL \
+      -H "Accept: application/vnd.github.raw" \
+      -H "Cache-Control: no-cache" \
+      -H "jshook: ${jshook}" \
+      "${url}" -o "${tmp}"
+  else
+    echo "未找到 curl 或 wget；请先安装其中一个，或手动传入 bootstrap-vps.sh。" >&2
+    exit 1
+  fi
 
-```bash
-curl -fsSL -H "jshook: ${JSHOOK:-123}" \
-  https://raw.githubusercontent.com/tao-t356/TaoBox/main/bootstrap-vps.sh | bash
+  bash "${tmp}"
+)
 ```
 
 安装完成后，直接输入：
